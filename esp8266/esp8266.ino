@@ -21,7 +21,7 @@
 
 #include <MQTT.h>
 
-//#define DEBUG
+#define DEBUG
 
 #define CS   D4
 #define CLK  D5
@@ -31,18 +31,20 @@
 
 const char* ssid = "}RooT{";
 const char* password = "";
-const char* mqttUserName = "";
+const char* mqttUserName = "5ba8acec";
 const char* mqttPassword = "";
-const char* mqttURL = ".mq.eu-west-1.amazonaws.com";
+const char* mqttURL = "broker.shiftr.io";
 const char* topic = "bme280.rec";
 const char* serialNumber = "1";
-const char* firmwareVersion = "201807141520";
+const char* firmwareVersion = "201911090020";
 String deviceName = ("smart-sensor-bme280-" + String(ESP.getChipId(), DEC));
 
 unsigned int localUdpPort = 6930;
 const char* sensorErrorInfo = "Could not find a valid BME280 sensor, check wiring!";
 boolean sensorInitialized;
 long lastMsg = 0;
+int mqttConnectRetrysAllowed = 5;
+int mqttConnectRetrys;
 
 WiFiUDP ntpUDP;
 WiFiUDP wifiUDP;
@@ -144,9 +146,6 @@ void setup() {
 
   server.onNotFound(handleNotFound);
   ArduinoOTA.setHostname(deviceName.c_str());
-  client.begin(mqttURL, 8883, espClient);
-  client.onMessage(messageReceived);
-  connect();
   httpUpdater.setup(&server);
   server.begin();
   if (sensor.begin(SENSOR_ADDRESS)) {
@@ -162,17 +161,25 @@ void setup() {
 #ifdef DEBUG
   Serial.println("Smart sensor Ready");
 #endif
+  espClient.setInsecure();
+  client.begin(mqttURL, 8883, espClient);
+  client.onMessage(messageReceived);
 }
 
 void connect() {
 #ifdef DEBUG
   Serial.print("MQTT connecting...");
 #endif
+  int retrys;
   while (!client.connect(deviceName.c_str(), mqttUserName, mqttPassword)) {
-    delay(500);
+    delay(1000);
 #ifdef DEBUG
     Serial.print(".");
 #endif
+    if (retrys++ >= 3) {
+      delay(3000);
+      break;
+    }
   }
 #ifdef DEBUG
   Serial.println("\nconnected!");
@@ -182,7 +189,7 @@ void connect() {
 }
 
 void loop() {
-  if (!client.connected()) {
+  if (mqttConnectRetrys++ <= mqttConnectRetrysAllowed && !client.connected()) {
     connect();
   }
   timeClient.update();
@@ -191,13 +198,14 @@ void loop() {
   server.handleClient();
   sendToQueue();
   handleUDPServer();
+  delay(10);
 }
 
 void sendToQueue() {
   long now = millis();
   if (now - lastMsg > 1 * (1000 * 60)) {
     lastMsg = now;
-    if (client.publish(topic, (char*) getSensorDataCSV().c_str(), 2, true)) {
+    if (client.publish(topic, "{\"temperature\": " + String(sensor.readTemperature(), 1) + ",\"pressure\": " + String(sensor.readPressure() / 100, 1) + ", \"altitude\": " + String(sensor.readAltitude(1013.25), 1) + ",\"humidity\": " + String(sensor.readHumidity(), 1) + "}")) {
 #ifdef DEBUG
       Serial.println("\ndelivered mqtt message!");
 #endif
@@ -230,4 +238,3 @@ bool waitNTPSync() {
   }
   return true;
 }
-
