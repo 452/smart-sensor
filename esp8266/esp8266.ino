@@ -22,6 +22,8 @@
 #include <MQTT.h>
 
 #include <ArduinoJson.h>
+#include <CronAlarms.h>
+#include <ESP8266HTTPClient.h>
 
 //#define DEBUG
 
@@ -52,6 +54,7 @@ WiFiUDP ntpUDP;
 WiFiUDP wifiUDP;
 NTPClient timeClient(ntpUDP);
 WiFiClientSecure espClient;
+HTTPClient https;
 MQTTClient client;
 Adafruit_BME280 sensor;
 MDNSResponder mdns;
@@ -187,6 +190,14 @@ void setup() {
   espClient.setInsecure();
   client.begin(mqttURL, 8883, espClient);
   client.onMessage(messageReceived);
+  Cron.create("0 9-21 * * *", sendToTelegram, true);
+}
+
+void sendToTelegram() {
+  String url = "https://api.telegram.org/bot648843886:/sendMessage?chat_id=-313942855&text=" + String(sensor.readTemperature(), 1);
+  https.begin(espClient, url);
+  https.GET();
+  https.end();
 }
 
 void connect() {
@@ -221,6 +232,7 @@ void loop() {
   server.handleClient();
   sendToQueue();
   handleUDPServer();
+  Cron.delay();
   delay(10);
 }
 
