@@ -21,7 +21,9 @@
 
 #include <MQTT.h>
 
-#define DEBUG
+#include <ArduinoJson.h>
+
+//#define DEBUG
 
 #define CS   D4
 #define CLK  D5
@@ -36,7 +38,7 @@ const char* mqttPassword = "";
 const char* mqttURL = "broker.shiftr.io";
 const char* topic = "bme280.rec";
 const char* serialNumber = "1";
-const char* firmwareVersion = "201911090020";
+const char* firmwareVersion = "201911292012";
 String deviceName = ("smart-sensor-bme280-" + String(ESP.getChipId(), DEC));
 
 unsigned int localUdpPort = 6930;
@@ -78,7 +80,28 @@ String getSensorDataXML() {
 
 String getSensorDataJSON() {
   if (sensorInitialized) {
-    return "{\"measurements\": {\"unixtimestamp\": " + String(timeClient.getEpochTime(), DEC) + ",\"temperature\": " + String(sensor.readTemperature(), 1) + ",\"pressure\": " + String(sensor.readPressure() / 100, 1) + ", \"altitude\": " + String(sensor.readAltitude(1013.25), 1) + ",\"humidity\": " + String(sensor.readHumidity(), 1) + "},\"systemInfo\": { \"type\": \"BME280\", \"rssi\": " + String(WiFi.RSSI(), DEC) + ",\"vcc\": " + String(ESP.getVcc() / 1024.00f, DEC) + ",\"serialNumber\": \"" + serialNumber + "\",\"firmwareVersion\": \"" + firmwareVersion + "\",\"chipId\": " + ESP.getChipId() + ",\"flashChipId\": " + ESP.getFlashChipId() + ",\"macAddress\": \"" + WiFi.macAddress() + "\"}}";
+    const size_t capacity = JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(5) + JSON_OBJECT_SIZE(8);
+    DynamicJsonDocument doc(capacity);
+    
+    JsonObject measurements = doc.createNestedObject("measurements");
+    measurements["unixtimestamp"] = timeClient.getEpochTime();
+    measurements["temperature"] = sensor.readTemperature();
+    measurements["pressure"] = sensor.readPressure() / 100;
+    measurements["altitude"] = sensor.readAltitude(1013.25);
+    measurements["humidity"] = sensor.readHumidity();
+    
+    JsonObject systemInfo = doc.createNestedObject("systemInfo");
+    systemInfo["type"] = "BME280";
+    systemInfo["rssi"] = WiFi.RSSI();
+    systemInfo["vcc"] = ESP.getVcc() / 1024.00f;
+    systemInfo["serialNumber"] = serialNumber;
+    systemInfo["firmwareVersion"] = firmwareVersion;
+    systemInfo["chipId"] = ESP.getChipId();
+    systemInfo["flashChipId"] = ESP.getFlashChipId();
+    systemInfo["macAddress"] = WiFi.macAddress();
+    String output;
+    serializeJson(doc, output);
+    return output;
   } else {
     return sensorErrorInfo;
   }
@@ -205,7 +228,17 @@ void sendToQueue() {
   long now = millis();
   if (now - lastMsg > 1 * (1000 * 60)) {
     lastMsg = now;
-    if (client.publish(topic, "{\"temperature\": " + String(sensor.readTemperature(), 1) + ",\"pressure\": " + String(sensor.readPressure() / 100, 1) + ", \"altitude\": " + String(sensor.readAltitude(1013.25), 1) + ",\"humidity\": " + String(sensor.readHumidity(), 1) + "}")) {
+    const size_t capacity = JSON_OBJECT_SIZE(5);
+    DynamicJsonDocument doc(capacity);
+
+    doc["chipId"] = ESP.getChipId();
+    doc["temperature"] = sensor.readTemperature();
+    doc["pressure"] = sensor.readPressure() / 100;
+    doc["altitude"] = sensor.readAltitude(1013.25);
+    doc["humidity"] = sensor.readHumidity();
+    String output;
+    serializeJson(doc, output);
+    if (client.publish(topic, output, 2, true)) {
 #ifdef DEBUG
       Serial.println("\ndelivered mqtt message!");
 #endif
