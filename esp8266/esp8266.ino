@@ -19,13 +19,13 @@
 #include <WiFiUdp.h>
 #include <ESP8266NetBIOS.h>
 
-#include <MQTT.h>
+//#include <MQTT.h>
 
 #include <ArduinoJson.h>
 #include <CronAlarms.h>
 #include <ESP8266HTTPClient.h>
 
-//#define DEBUG
+#define DEBUG
 
 #define CS   D4
 #define CLK  D5
@@ -35,27 +35,27 @@
 
 const char* ssid = "}RooT{";
 const char* password = "";
-const char* mqttUserName = "5ba8acec";
-const char* mqttPassword = "";
-const char* mqttURL = "broker.shiftr.io";
-const char* topic = "bme280.rec";
+//const char* mqttUserName = "5ba8acec";
+//const char* mqttPassword = "";
+//const char* mqttURL = "broker.shiftr.io";
+//const char* topic = "bme280.rec";
 const char* serialNumber = "1";
-const char* firmwareVersion = "201911292012";
+const char* firmwareVersion = "202003011743";
 String deviceName = ("smart-sensor-bme280-" + String(ESP.getChipId(), DEC));
 
 unsigned int localUdpPort = 6930;
 const char* sensorErrorInfo = "Could not find a valid BME280 sensor, check wiring!";
 boolean sensorInitialized;
 long lastMsg = 0;
-int mqttConnectRetrysAllowed = 5;
-int mqttConnectRetrys;
+//int mqttConnectRetrysAllowed = 5;
+//int mqttConnectRetrys;
 
 WiFiUDP ntpUDP;
 WiFiUDP wifiUDP;
 NTPClient timeClient(ntpUDP);
 WiFiClientSecure espClient;
 HTTPClient https;
-MQTTClient client;
+//MQTTClient client;
 Adafruit_BME280 sensor;
 MDNSResponder mdns;
 ESP8266WebServer server(80);
@@ -141,20 +141,46 @@ void messageReceived(String &topic, String &payload) {
 }
 
 void setup() {
-  //  ADC_MODE(ADC_VCC);
+  // ADC_MODE(ADC_VCC);
 #ifdef DEBUG
   Serial.begin(115200);
+  Serial.setDebugOutput(true);
+  Serial.println();
   Serial.println("Booting");
+  Serial.print("WIFI scan start ... ");
+  int n = WiFi.scanNetworks();
+  Serial.print(n);
+  Serial.println(" network(s) found");
+  for (int i = 0; i < n; i++) {
+    Serial.println(WiFi.SSID(i));
+  }
+  Serial.println();
 #endif
-  WiFi.mode(WIFI_STA);
+//  WiFi.persistent(false);
+//  WiFi.disconnect(true);
+//  WiFi.setAutoConnect(false);
+//  WiFi.softAPdisconnect(true);
   WiFi.hostname(deviceName);
+  WiFi.mode(WIFI_STA);
+//  WiFi.setOutputPower(30);
+//  WiFi.setPhyMode(WIFI_PHY_MODE_11G);
   while (WiFi.waitForConnectResult() != WL_CONNECTED) {
+#ifdef DEBUG
+    Serial.println("Begin connect to WIFI " + String(ssid));
+#endif
     WiFi.begin(ssid, password);
 #ifdef DEBUG
-    Serial.println("Retrying connection...");
+    WiFi.printDiag(Serial);
+    Serial.println("Retrying connection... ssid: '" + String(ssid) + "' password: '" + password + "'");
 #endif
+    delay(10000);
   }
-
+  WiFi.setAutoConnect(true);
+  WiFi.setAutoReconnect(true);
+#ifdef DEBUG
+    Serial.println("Connected to WIFI " + String(ssid));
+    Serial.println("IP address: " + WiFi.localIP());
+#endif
   if (mdns.begin(deviceName.c_str(), WiFi.localIP())) {
 #ifdef DEBUG
     Serial.println("MDNS responder started");
@@ -184,53 +210,87 @@ void setup() {
   waitNTPSync();
   NBNS.begin(deviceName.c_str());
   wifiUDP.begin(localUdpPort);
-#ifdef DEBUG
-  Serial.println("Smart sensor Ready");
-#endif
   espClient.setInsecure();
-  client.begin(mqttURL, 8883, espClient);
-  client.onMessage(messageReceived);
-  Cron.create("0 9-21 * * *", sendToTelegram, true);
+//  client.begin(mqttURL, 8883, espClient);
+//  client.onMessage(messageReceived);
+  Cron.create("0 */1 * * * *", sendToBackend, false);
+  Cron.create("0 0 * * * *", sendToTelegram, false);
+  #ifdef DEBUG
+    Serial.println("Smart sensor Ready");
+  #endif
+}
+
+void sendToBackend() {
+  #ifdef DEBUG
+    Serial.println("sendToBackend");
+  #endif
+  String url = "";
+  const size_t capacity = JSON_OBJECT_SIZE(96);//JSON_OBJECT_SIZE(12);
+  DynamicJsonDocument doc(capacity);
+  doc["chipId"] = ESP.getChipId();
+  doc["flashChipId"] = ESP.getFlashChipId();
+  doc["macAddress"] = String(WiFi.macAddress());
+  doc["temperature"] = sensor.readTemperature();
+  doc["rssi"] = String(WiFi.RSSI(), DEC);
+  doc["vcc"] = ESP.getVcc() / 1024.00f;
+  doc["type"] = "BME280";
+  doc["serialNumber"] = serialNumber;
+  doc["firmwareVersion"] = firmwareVersion;
+  doc["pressure"] = sensor.readPressure() / 100;
+  doc["altitude"] = sensor.readAltitude(1013.25);
+  doc["humidity"] = sensor.readHumidity();
+  doc["unixtimestamp"] = timeClient.getEpochTime();
+//  deviceName
+  String output;
+  serializeJson(doc, output);
+  https.begin(url);
+  https.addHeader("Content-Type", "application/json");
+  int httpCode = https.POST(output);
+//  String payload = https.getString();
+//  Serial.println(httpCode);   //Print HTTP return code
+//  Serial.println(payload);
+//  https.writeToStream(&Serial);
+  https.end();
 }
 
 void sendToTelegram() {
-  String url = "https://api.telegram.org/bot648843886:/sendMessage?chat_id=-313942855&text=" + String(sensor.readTemperature(), 1);
+  String url = "https://api.telegram.org/&text=" + String(sensor.readTemperature(), 1);
   https.begin(espClient, url);
   https.GET();
   https.end();
 }
 
-void connect() {
-#ifdef DEBUG
-  Serial.print("MQTT connecting...");
-#endif
-  int retrys;
-  while (!client.connect(deviceName.c_str(), mqttUserName, mqttPassword)) {
-    delay(1000);
-#ifdef DEBUG
-    Serial.print(".");
-#endif
-    if (retrys++ >= 3) {
-      delay(3000);
-      break;
-    }
-  }
-#ifdef DEBUG
-  Serial.println("\nconnected!");
-#endif
-
-  client.subscribe("bm280S", 1);
-}
+//void connect() {
+//#ifdef DEBUG
+//  Serial.print("MQTT connecting...");
+//#endif
+//  int retrys;
+//  while (!client.connect(deviceName.c_str(), mqttUserName, mqttPassword)) {
+//    delay(1000);
+//#ifdef DEBUG
+//    Serial.print(".");
+//#endif
+//    if (retrys++ >= 3) {
+//      delay(3000);
+//      break;
+//    }
+//  }
+//#ifdef DEBUG
+//  Serial.println("\nconnected!");
+//#endif
+//
+//  client.subscribe("bm280S", 1);
+//}
 
 void loop() {
-  if (mqttConnectRetrys++ <= mqttConnectRetrysAllowed && !client.connected()) {
-    connect();
-  }
+//  if (mqttConnectRetrys++ <= mqttConnectRetrysAllowed && !client.connected()) {
+//    connect();
+//  }
   timeClient.update();
-  client.loop();
+//  client.loop();
   ArduinoOTA.handle();
   server.handleClient();
-  sendToQueue();
+//  sendToQueue();
   handleUDPServer();
   Cron.delay();
   delay(10);
@@ -250,15 +310,15 @@ void sendToQueue() {
     doc["humidity"] = sensor.readHumidity();
     String output;
     serializeJson(doc, output);
-    if (client.publish(topic, output, 2, true)) {
-#ifdef DEBUG
-      Serial.println("\ndelivered mqtt message!");
-#endif
-    } else {
-#ifdef DEBUG
-      Serial.println("\nnot delivered mqtt message!");
-#endif
-    }
+//    if (client.publish(topic, output, 2, true)) {
+//#ifdef DEBUG
+//      Serial.println("\ndelivered mqtt message!");
+//#endif
+//    } else {
+//#ifdef DEBUG
+//      Serial.println("\nnot delivered mqtt message!");
+//#endif
+//    }
   }
 }
 
