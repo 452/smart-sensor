@@ -33,14 +33,15 @@
 #define MOSI D7
 #define SENSOR_ADDRESS 0x76
 
-const char* ssid = "}RooT{";
-const char* password = "";
+// const char* ssid = "myssid";
+// const char* wifiPassword = "mypass";
+
 //const char* mqttUserName = "5ba8acec";
 //const char* mqttPassword = "";
 //const char* mqttURL = "broker.shiftr.io";
 //const char* topic = "bme280.rec";
 const char* serialNumber = "1";
-const char* firmwareVersion = "202004152002";
+const char* firmwareVersion = "202302191708";
 String deviceName = ("smart-sensor-bme280-" + String(ESP.getChipId(), DEC));
 String name = ("smart" + String(ESP.getChipId(), DEC));
 
@@ -167,20 +168,20 @@ void setup() {
 //  WiFi.setPhyMode(WIFI_PHY_MODE_11G);
   while (WiFi.waitForConnectResult() != WL_CONNECTED) {
 #ifdef DEBUG
-    Serial.println("Begin connect to WIFI " + String(ssid));
+    Serial.println("Begin connect to WIFI " + String(wifissid));
 #endif
-    WiFi.begin(ssid, password);
+    WiFi.begin(wifissid, wifiPassword);
 #ifdef DEBUG
     WiFi.printDiag(Serial);
-    Serial.println("Retrying connection... ssid: '" + String(ssid) + "' password: '" + password + "'");
+    Serial.println("Retrying connection... ssid: '" + String(wifissid) + "' password: '" + wifiPassword + "'");
 #endif
     delay(10000);
   }
   WiFi.setAutoConnect(true);
   WiFi.setAutoReconnect(true);
 #ifdef DEBUG
-    Serial.println("Connected to WIFI " + String(ssid));
-    Serial.println("IP address: " + WiFi.localIP());
+    Serial.println("Connected to WIFI " + String(wifissid));
+    //Serial.println("IP address: " + WiFi.localIP());
 #endif
   if (mdns.begin(deviceName.c_str(), WiFi.localIP())) {
 #ifdef DEBUG
@@ -244,7 +245,7 @@ void sendToBackend() {
 //  deviceName
   String output;
   serializeJson(doc, output);
-  https.begin(url);
+  https.begin(espClient, url);
   https.addHeader("Content-Type", "application/json");
   int httpCode = https.POST(output);
 //  String payload = https.getString();
