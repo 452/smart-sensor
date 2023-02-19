@@ -40,8 +40,9 @@ const char* password = "";
 //const char* mqttURL = "broker.shiftr.io";
 //const char* topic = "bme280.rec";
 const char* serialNumber = "1";
-const char* firmwareVersion = "202003011743";
+const char* firmwareVersion = "202004152002";
 String deviceName = ("smart-sensor-bme280-" + String(ESP.getChipId(), DEC));
+String name = ("smart" + String(ESP.getChipId(), DEC));
 
 unsigned int localUdpPort = 6930;
 const char* sensorErrorInfo = "Could not find a valid BME280 sensor, check wiring!";
@@ -213,8 +214,8 @@ void setup() {
   espClient.setInsecure();
 //  client.begin(mqttURL, 8883, espClient);
 //  client.onMessage(messageReceived);
-  Cron.create("0 */1 * * * *", sendToBackend, false);
-  Cron.create("0 0 * * * *", sendToTelegram, false);
+  Cron.create("0 */3 * * * *", sendToBackend, false);
+  Cron.create("0 0 */3 * * *", sendToTelegram, false);
   #ifdef DEBUG
     Serial.println("Smart sensor Ready");
   #endif
@@ -254,7 +255,12 @@ void sendToBackend() {
 }
 
 void sendToTelegram() {
-  String url = "https://api.telegram.org/&text=" + String(sensor.readTemperature(), 1);
+  String url = "https://api.telegram.org/&text=Метеорологічні метрики:%0A" +
+  String("назва: " + name + "%0A") +
+  String("температура: " + String(sensor.readTemperature(), 1) + " °C%0A") +
+  String("тиск: " + String(sensor.readPressure() / 100) + " hPa%0A") +
+  String("вологість повітря: " + String(sensor.readHumidity()) + "%%0A") +
+  String("висота над рівнем моря: " + String(sensor.readAltitude(1013.25)));
   https.begin(espClient, url);
   https.GET();
   https.end();
